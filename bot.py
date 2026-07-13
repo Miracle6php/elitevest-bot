@@ -24,10 +24,10 @@ from invest import (
 import sqlite3
 import random
 import string
+
 import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
 ADMIN_ID=8672271918
 
 
@@ -445,3 +445,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
