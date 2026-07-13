@@ -48,7 +48,7 @@ async def handle_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TY
         f"💳 Deposit Request\n\n"
         f"💵 Amount: ${amount}\n\n"
         f"Send payment to:\n\n"
-        f"`YOUR_USDT_WALLET_ADDRESS`\n\n"
+        f"TABK7j4y3NP5xSvjpnSKsFncNYX8RPtnFB\n\n"
         f"Network: TRC20\n\n"
         f"After payment click ✅ Payment Sent",
         reply_markup=payment_keyboard,
