@@ -24,9 +24,9 @@ from invest import (
 import sqlite3
 import random
 import string
+import os
 
-
-BOT_TOKEN="8961915590:AAGxLA66oDNtA5QE_nqPGopQ0oOjcj4K7sk"
+BOT_TOKEN = os.getenv("8961915590:AAFyPTPM8ntrWpKR9Ugd1HFjJlrmwAQigw4")
 
 ADMIN_ID=8672271918
 
