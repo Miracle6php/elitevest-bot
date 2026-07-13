@@ -26,7 +26,7 @@ import random
 import string
 import os
 
-BOT_TOKEN = os.getenv("8961915590:AAFyPTPM8ntrWpKR9Ugd1HFjJlrmwAQigw4")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 ADMIN_ID=8672271918
 
