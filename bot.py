@@ -38,6 +38,17 @@ BOT_TOKEN="8938062623:AAE3kpa2erORsolY0QdyGd-F4Ykjx1IcAIc"
 
 ADMIN_ID=8672271918
 
+HOME_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["👤 My Account", "💳 Deposit Funds"],
+        ["📤 Withdraw Funds", "💰 Invest Now"],
+        ["💼 Active Investments", "👥 Referral Program"],
+        ["📜 Transaction History", "💹 Crypto Prices"],
+        ["📞 Contact Support"]
+    ],
+    resize_keyboard=True
+)
+
 
 def create_database():
     conn = sqlite3.connect("elitevest.db")
@@ -169,23 +180,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     register_user(user, referrer_id)
 
-    keyboard = [
-        ["💰 Invest Now", "💳 Deposit Funds"],
-        ["📤 Withdraw Funds", "👤 My Account"],
-        ["📈 Investment Plans", "💼 Active Investments"],
-        ["📜 Transaction History", "👥 Referral Program"],
-        ["🎁 Bonus Center", "🏆 VIP Membership"],
-        ["🎯 Promotions", "🎉 Rewards"],
-        ["📊 Market Updates", "💹 Crypto Prices"],
-        ["📰 News & Insights", "📅 Investment Calendar"],
-        ["⚙️ Settings", "❓ FAQ"],
-        ["📞 Contact Support", "🌐 Official Channel"]
-    ]
-
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
-    )
 
     await update.message.reply_text(
         "🏠 HOME\n\n"
@@ -194,7 +188,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔒 Secure Transactions\n"
         "⚡ Fast Processing\n"
         "📊 Portfolio Tracking",
-        reply_markup=reply_markup
+        reply_markup=HOME_KEYBOARD
     )
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -311,29 +305,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎁 Referral Bonus: ${referral_bonus}"
             )
 async def show_home(update: Update):
-    keyboard = [
-        ["💰 Invest Now", "💳 Deposit Funds"],
-        ["📤 Withdraw Funds", "👤 My Account"],
-        ["📈 Investment Plans", "💼 Active Investments"],
-        ["📜 Transaction History", "👥 Referral Program"],
-        ["🎁 Bonus Center", "🏆 VIP Membership"],
-        ["🎯 Promotions", "🎉 Rewards"],
-        ["📊 Market Updates", "💹 Crypto Prices"],
-        ["📰 News & Insights", "📅 Investment Calendar"],
-        ["⚙️ Settings", "❓ FAQ"],
-        ["📞 Contact Support", "🌐 Official Channel"]
-    ]
-
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
-    )
-
     await update.message.reply_text(
-        "🏠 Home",
-        reply_markup=reply_markup
-    )   
-     
+        "🏠 HOME",
+        reply_markup=HOME_KEYBOARD
+    ) 
 async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.user_data.get("waiting_for_screenshot"):
