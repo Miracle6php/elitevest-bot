@@ -1,6 +1,8 @@
 from referral import referral_menu
 from deposit import deposit_menu, handle_deposit_amount
+from datetime import datetime
 from telegram.ext import CallbackQueryHandler
+from Transaction import transaction_history
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -83,6 +85,17 @@ def create_database():
         status TEXT DEFAULT 'Active'
     )
     """)
+    cursor.execute("""
+	CREATE TABLE IF NOT EXISTS transactions(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    	telegram_id INTEGER,
+    	type TEXT,
+    	amount REAL,
+    	status TEXT,
+    	date TEXT
+	)
+	""")
+    
 
     conn.commit()
     conn.close()
@@ -211,25 +224,44 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await create_investment(update, context):
         return
 
+
     text = update.message.text
+
 
     if text == "💰 Invest Now":
         await investment_menu(update, context)
+        return
+
 
     elif text == "💼 Active Investments":
         await show_active_investments(update, context)
+        return
+
+
+    elif text == "📜 Transaction History":
+        await transaction_history(update, context)
+        return
+
 
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
+        return
+
 
     elif text == "💳 Deposit Funds":
         await deposit_menu(update, context)
+        return
+
 
     elif text == "📤 Withdraw Funds":
         await withdraw_menu(update, context)
+        return
+
 
     elif text == "🏠 Home":
         await show_home(update)
+        return
+
 
     elif text == "❌ Cancel":
 
@@ -240,6 +272,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await show_home(update)
+        return
+
 
     elif text == "✅ Payment Sent":
 
@@ -256,6 +290,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"You may attach a screenshot for faster confirmation.",
             reply_markup=review_keyboard
         )
+        return
+
 
     elif text == "📷 Attach Screenshot":
 
@@ -264,6 +300,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "📷 Please send your payment screenshot as a photo."
         )
+        return
+
 
     elif text == "👤 My Account":
 
@@ -291,7 +329,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         conn.close()
 
+
         if data:
+
             account_id, balance, investments, withdrawn, deposited, referrals, referral_bonus = data
 
             await update.message.reply_text(
@@ -304,6 +344,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👥 Referrals: {referrals}\n"
                 f"🎁 Referral Bonus: ${referral_bonus}"
             )
+
+        else:
+
+            await update.message.reply_text(
+                "❌ Account not found."
+            )
+
+        return
 async def show_home(update: Update):
     await update.message.reply_text(
         "🏠 HOME",
@@ -360,7 +408,11 @@ async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await show_home(update)
     
+
+
+
 async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
     await query.answer()
 
@@ -369,11 +421,14 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = int(user_id)
     amount = float(amount)
 
+
     if action == "approve":
 
         conn = sqlite3.connect("elitevest.db")
         cursor = conn.cursor()
 
+
+        # Update user balance and deposit total
         cursor.execute(
             """
             UPDATE users
@@ -384,8 +439,32 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (amount, amount, user_id)
         )
 
+
+        # Save transaction history
+        cursor.execute(
+            """
+            INSERT INTO transactions(
+                telegram_id,
+                type,
+                amount,
+                status,
+                date
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                "Deposit",
+                amount,
+                "Approved",
+                datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
+        )
+
+
         conn.commit()
         conn.close()
+
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -396,13 +475,46 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
+
         await query.edit_message_text(
             query.message.text +
             f"\n\n✅ Deposit Approved\n"
             f"💵 Credited Amount: ${amount}"
         )
 
+
     elif action == "reject":
+
+
+        # Save rejected transaction
+        conn = sqlite3.connect("elitevest.db")
+        cursor = conn.cursor()
+
+
+        cursor.execute(
+            """
+            INSERT INTO transactions(
+                telegram_id,
+                type,
+                amount,
+                status,
+                date
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                "Deposit",
+                amount,
+                "Rejected",
+                datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
+        )
+
+
+        conn.commit()
+        conn.close()
+
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -411,6 +523,7 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Please contact support or submit a valid payment proof."
             )
         )
+
 
         await query.edit_message_text(
             query.message.text +
