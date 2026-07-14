@@ -20,6 +20,13 @@ from invest import (
     create_investment,
     show_active_investments
 )
+from withdrawal import (
+    withdraw_menu,
+    handle_withdraw_amount,
+    handle_wallet_address,
+    approve_withdraw,
+    reject_withdraw
+)
 
 import sqlite3
 import random
@@ -188,11 +195,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 Portfolio Tracking",
         reply_markup=reply_markup
     )
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    # Deposit flow
     if await handle_deposit_amount(update, context):
         return
 
+    # Withdrawal flow
+    if await handle_withdraw_amount(update, context):
+        return
+
+    if await handle_wallet_address(update, context):
+        return
+
+    # Investment flow
     if await create_investment(update, context):
         return
 
@@ -205,11 +222,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💼 Active Investments":
         await show_active_investments(update, context)
         return
+
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
         return
+
     elif text == "💳 Deposit Funds":
         await deposit_menu(update, context)
+        return
+
+    elif text == "📤 Withdraw Funds":
+        await withdraw_menu(update, context)
         return
 
     elif text == "🏠 Home":
@@ -221,17 +244,19 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("waiting_for_deposit_amount", None)
         context.user_data.pop("waiting_for_screenshot", None)
 
+        context.user_data.pop("withdraw_amount", None)
+        context.user_data.pop("waiting_for_withdraw_amount", None)
+        context.user_data.pop("waiting_for_wallet", None)
+
         await update.message.reply_text(
-            "❌ Deposit cancelled."
+            "❌ Operation cancelled."
         )
 
         await show_home(update)
         return
-  
+
     elif text == "✅ Payment Sent":
         amount = context.user_data.get("deposit_amount")
-
-
 
         review_keyboard = ReplyKeyboardMarkup(
             [["📷 Attach Screenshot"]],
@@ -255,18 +280,25 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text == "👤 My Account":
+
         user = update.effective_user
 
         conn = sqlite3.connect("elitevest.db")
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT account_id, balance, investments, withdrawn, deposited, referrals, referral_bonus "
-            "FROM users WHERE telegram_id=?",
+            """
+            SELECT account_id, balance, investments,
+                   withdrawn, deposited,
+                   referrals, referral_bonus
+            FROM users
+            WHERE telegram_id=?
+            """,
             (user.id,)
         )
 
         data = cursor.fetchone()
+
         conn.close()
 
         if data:
@@ -281,8 +313,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💳 Total Deposited: ${deposited}\n"
                 f"👥 Referrals: {referrals}\n"
                 f"🎁 Referral Bonus: ${referral_bonus}"
-            )
-     
+            )     
      
 async def show_home(update: Update):
     keyboard = [
@@ -415,16 +446,45 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query.message.text +
             "\n\n❌ Deposit Rejected"
         )
+
 def main():
     create_database()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-
+    # Commands
     app.add_handler(
-      CallbackQueryHandler(admin_actions)
-)
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    # Deposit approve/reject callbacks
+    app.add_handler(
+        CallbackQueryHandler(
+            admin_actions,
+            pattern="^(approve|reject)_"
+        )
+    )
+
+    # Withdrawal approve callback
+    app.add_handler(
+        CallbackQueryHandler(
+            approve_withdraw,
+            pattern="^approve_withdraw_"
+        )
+    )
+
+    # Withdrawal reject callback
+    app.add_handler(
+        CallbackQueryHandler(
+            reject_withdraw,
+            pattern="^reject_withdraw_"
+        )
+    )
+
+    # Screenshot handler
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
@@ -432,6 +492,7 @@ def main():
         )
     )
 
+    # All text buttons and inputs
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -441,7 +502,6 @@ def main():
 
     print("Bot is running...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
