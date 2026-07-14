@@ -11,16 +11,11 @@ ADMIN_ID = 8672271918
 
 HOME_KEYBOARD = ReplyKeyboardMarkup(
     [
-        ["💰 Invest Now", "💳 Deposit Funds"],
-        ["📤 Withdraw Funds", "👤 My Account"],
-        ["📈 Investment Plans", "💼 Active Investments"],
-        ["📜 Transaction History", "👥 Referral Program"],
-        ["🎁 Bonus Center", "🏆 VIP Membership"],
-        ["🎯 Promotions", "🎉 Rewards"],
-        ["📊 Market Updates", "💹 Crypto Prices"],
-        ["📰 News & Insights", "📅 Investment Calendar"],
-        ["⚙️ Settings", "❓ FAQ"],
-        ["📞 Contact Support", "🌐 Official Channel"]
+        ["👤 My Account", "💳 Deposit Funds"],
+        ["📤 Withdraw Funds", "💰 Invest Now"],
+        ["💼 Active Investments", "👥 Referral Program"],
+        ["📜 Transaction History", "💹 Crypto Prices"],
+        ["📞 Contact Support"]
     ],
     resize_keyboard=True
 )
@@ -233,31 +228,67 @@ async def approve_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = conn.cursor()
 
     cursor.execute(
-        """
-        UPDATE users
-        SET balance = balance - ?,
-            withdrawn = withdrawn + ?
-        WHERE telegram_id = ?
-        """,
-        (amount, amount, user_id)
+        "SELECT balance FROM users WHERE telegram_id=?",
+        (user_id,)
     )
 
-    conn.commit()
-    conn.close()
+    result = cursor.fetchone()
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            f"✅ Withdrawal Approved\n\n"
-            f"💵 Amount Sent: ${amount}"
+    if not result:
+        conn.close()
+
+        await query.edit_message_text(
+            query.message.text +
+            "\n\n❌ User account not found."
         )
-    )
+        return
 
-    await query.edit_message_text(
-        query.message.text +
-        f"\n\n✅ Withdrawal Approved\n"
-        f"💵 Amount: ${amount}"
-    )
+    balance = result[0]
+
+    if balance >= amount:
+
+        cursor.execute(
+            """
+            UPDATE users
+            SET balance = balance - ?,
+                withdrawn = withdrawn + ?
+            WHERE telegram_id = ?
+            """,
+            (amount, amount, user_id)
+        )
+
+        conn.commit()
+        conn.close()
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"✅ Withdrawal Approved\n\n"
+                f"💵 Amount Sent: ${amount}"
+            )
+        )
+
+        await query.edit_message_text(
+            query.message.text +
+            f"\n\n✅ Withdrawal Approved\n"
+            f"💵 Amount: ${amount}"
+        )
+
+    else:
+        conn.close()
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "❌ Withdrawal could not be processed.\n"
+                "Insufficient balance."
+            )
+        )
+
+        await query.edit_message_text(
+            query.message.text +
+            "\n\n❌ Approval failed: insufficient balance."
+        )
 
 
 async def reject_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
