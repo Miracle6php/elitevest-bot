@@ -23,6 +23,7 @@ from invest import (
 from Withdrawal import (
     withdraw_menu,
     handle_withdraw_amount,
+    handle_withdraw_confirmation,
     handle_wallet_address,
     approve_withdraw,
     reject_withdraw
@@ -206,6 +207,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_withdraw_amount(update, context):
         return
 
+    if await handle_withdraw_confirmation(update, context):
+        return
+
     if await handle_wallet_address(update, context):
         return
 
@@ -217,45 +221,34 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "💰 Invest Now":
         await investment_menu(update, context)
-        return
 
     elif text == "💼 Active Investments":
         await show_active_investments(update, context)
-        return
 
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
-        return
 
     elif text == "💳 Deposit Funds":
         await deposit_menu(update, context)
-        return
 
     elif text == "📤 Withdraw Funds":
         await withdraw_menu(update, context)
-        return
 
     elif text == "🏠 Home":
         await show_home(update)
-        return
 
     elif text == "❌ Cancel":
-        context.user_data.pop("deposit_amount", None)
-        context.user_data.pop("waiting_for_deposit_amount", None)
-        context.user_data.pop("waiting_for_screenshot", None)
 
-        context.user_data.pop("withdraw_amount", None)
-        context.user_data.pop("waiting_for_withdraw_amount", None)
-        context.user_data.pop("waiting_for_wallet", None)
+        context.user_data.clear()
 
         await update.message.reply_text(
             "❌ Operation cancelled."
         )
 
         await show_home(update)
-        return
 
     elif text == "✅ Payment Sent":
+
         amount = context.user_data.get("deposit_amount")
 
         review_keyboard = ReplyKeyboardMarkup(
@@ -269,15 +262,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"You may attach a screenshot for faster confirmation.",
             reply_markup=review_keyboard
         )
-        return
 
     elif text == "📷 Attach Screenshot":
+
         context.user_data["waiting_for_screenshot"] = True
 
         await update.message.reply_text(
             "📷 Please send your payment screenshot as a photo."
         )
-        return
 
     elif text == "👤 My Account":
 
@@ -288,9 +280,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         cursor.execute(
             """
-            SELECT account_id, balance, investments,
-                   withdrawn, deposited,
-                   referrals, referral_bonus
+            SELECT account_id,
+                   balance,
+                   investments,
+                   withdrawn,
+                   deposited,
+                   referrals,
+                   referral_bonus
             FROM users
             WHERE telegram_id=?
             """,
@@ -313,8 +309,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💳 Total Deposited: ${deposited}\n"
                 f"👥 Referrals: {referrals}\n"
                 f"🎁 Referral Bonus: ${referral_bonus}"
-            )     
-     
+            )
 async def show_home(update: Update):
     keyboard = [
         ["💰 Invest Now", "💳 Deposit Funds"],
