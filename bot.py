@@ -20,7 +20,7 @@ from invest import (
     create_investment,
     show_active_investments
 )
-from withdrawal import (
+from Withdrawal import (
     withdraw_menu,
     handle_withdraw_amount,
     handle_wallet_address,
