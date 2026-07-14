@@ -441,13 +441,12 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query.message.text +
             "\n\n❌ Deposit Rejected"
         )
-
 def main():
     create_database()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Commands
+    # Start command
     app.add_handler(
         CommandHandler(
             "start",
@@ -455,27 +454,30 @@ def main():
         )
     )
 
-    # Deposit approve/reject callbacks
-    app.add_handler(
-        CallbackQueryHandler(
-            admin_actions,
-            pattern="^(approve|reject)_"
-        )
-    )
-
-    # Withdrawal approve callback
+    # ==========================================
+    # WITHDRAWAL CALLBACKS
+    # ==========================================
     app.add_handler(
         CallbackQueryHandler(
             approve_withdraw,
-            pattern="^approve_withdraw_"
+            pattern=r"^approve_withdraw_"
         )
     )
 
-    # Withdrawal reject callback
     app.add_handler(
         CallbackQueryHandler(
             reject_withdraw,
-            pattern="^reject_withdraw_"
+            pattern=r"^reject_withdraw_"
+        )
+    )
+
+    # ==========================================
+    # DEPOSIT CALLBACKS
+    # ==========================================
+    app.add_handler(
+        CallbackQueryHandler(
+            admin_actions,
+            pattern=r"^(approve|reject)_[0-9]+_[0-9.]+$"
         )
     )
 
@@ -487,7 +489,7 @@ def main():
         )
     )
 
-    # All text buttons and inputs
+    # Text buttons and inputs
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -497,6 +499,7 @@ def main():
 
     print("Bot is running...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
