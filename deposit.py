@@ -18,6 +18,7 @@ async def handle_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         amount = float(update.message.text.strip())
+
     except ValueError:
         await update.message.reply_text(
             "❌ Please enter a valid amount.\n\n"
@@ -27,14 +28,17 @@ async def handle_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return True
 
+
     if amount <= 0:
         await update.message.reply_text(
             "❌ Deposit amount must be greater than zero."
         )
         return True
 
+
     context.user_data["deposit_amount"] = amount
     context.user_data["waiting_for_deposit_amount"] = False
+
 
     payment_keyboard = ReplyKeyboardMarkup(
         [
@@ -44,15 +48,17 @@ async def handle_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TY
         resize_keyboard=True
     )
 
+
     await update.message.reply_text(
         f"💳 Deposit Request\n\n"
         f"💵 Amount: ${amount}\n\n"
         f"Send payment to:\n\n"
-        f"TABK7j4y3NP5xSvjpnSKsFncNYX8RPtnFB\n\n"
+        f"`TABK7j4y3NP5xSvjpnSKsFncNYX8RPtnFB`\n\n"
         f"Network: TRC20\n\n"
         f"After payment click ✅ Payment Sent",
         reply_markup=payment_keyboard,
         parse_mode="Markdown"
     )
+
 
     return True
