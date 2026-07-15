@@ -2,6 +2,7 @@ from referral import referral_menu
 from deposit import deposit_menu, handle_deposit_amount
 from datetime import datetime
 from telegram.ext import CallbackQueryHandler
+from crpto import crypto_prices
 from Transaction import transaction_history
 from telegram import (
     Update,
@@ -203,7 +204,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 Portfolio Tracking",
         reply_markup=HOME_KEYBOARD
     )
-
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Deposit flow
@@ -243,6 +243,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+    elif text == "💹 Crypto Prices":
+        await crypto_prices(update, context)
+        return
+
+
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
         return
@@ -255,51 +260,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "📤 Withdraw Funds":
         await withdraw_menu(update, context)
-        return
-
-
-    elif text == "🏠 Home":
-        await show_home(update)
-        return
-
-
-    elif text == "❌ Cancel":
-
-        context.user_data.clear()
-
-        await update.message.reply_text(
-            "❌ Operation cancelled."
-        )
-
-        await show_home(update)
-        return
-
-
-    elif text == "✅ Payment Sent":
-
-        amount = context.user_data.get("deposit_amount")
-
-        review_keyboard = ReplyKeyboardMarkup(
-            [["📷 Attach Screenshot"]],
-            resize_keyboard=True
-        )
-
-        await update.message.reply_text(
-            f"⏳ Payment Under Review\n\n"
-            f"Your payment of ${amount} is being reviewed.\n\n"
-            f"You may attach a screenshot for faster confirmation.",
-            reply_markup=review_keyboard
-        )
-        return
-
-
-    elif text == "📷 Attach Screenshot":
-
-        context.user_data["waiting_for_screenshot"] = True
-
-        await update.message.reply_text(
-            "📷 Please send your payment screenshot as a photo."
-        )
         return
 
 
@@ -352,6 +312,55 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         return
+
+
+    elif text == "🏠 Home":
+
+        await show_home(update)
+        return
+
+
+    elif text == "❌ Cancel":
+
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            "❌ Operation cancelled."
+        )
+
+        await show_home(update)
+        return
+
+
+    elif text == "✅ Payment Sent":
+
+        amount = context.user_data.get("deposit_amount")
+
+        review_keyboard = ReplyKeyboardMarkup(
+            [["📷 Attach Screenshot"]],
+            resize_keyboard=True
+        )
+
+        await update.message.reply_text(
+            f"⏳ Payment Under Review\n\n"
+            f"Your payment of ${amount} is being reviewed.\n\n"
+            f"You may attach a screenshot for faster confirmation.",
+            reply_markup=review_keyboard
+        )
+
+        return
+
+
+    elif text == "📷 Attach Screenshot":
+
+        context.user_data["waiting_for_screenshot"] = True
+
+        await update.message.reply_text(
+            "📷 Please send your payment screenshot as a photo."
+        )
+
+        return
+
 async def show_home(update: Update):
     await update.message.reply_text(
         "🏠 HOME",
@@ -539,6 +548,16 @@ def main():
         CommandHandler(
             "start",
             start
+        )
+    )
+
+    # ==========================================
+    # CRYPTO REFRESH CALLBACK
+    # ==========================================
+    app.add_handler(
+        CallbackQueryHandler(
+            crypto_prices,
+            pattern=r"^crypto_refresh$"
         )
     )
 
