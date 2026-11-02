@@ -360,7 +360,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_home(update)
         return
 
-    elif text == "❌ Cancel":
+    elif text in ("❌ Cancel", "❌ Cancel Deposit"):
 
         context.user_data.clear()
 
