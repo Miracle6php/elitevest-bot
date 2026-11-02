@@ -11,15 +11,14 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
-URL = "https://api.coingecko.com/api/v3/simple/price"
+# Optional keys (set on Render > Environment). Both work without a key.
+CRYPTOCOMPARE_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY")
+COINGECKO_KEY = os.environ.get("COINGECKO_API_KEY")
 
-# Optional free CoinGecko "Demo" key (set COINGECKO_API_KEY on Render).
-# Helps a lot because shared cloud IPs are often rate-limited without a key.
-API_KEY = os.environ.get("COINGECKO_API_KEY")
-
-CACHE_SECONDS = 60
+CACHE_SECONDS = 45
 _cache = {"time": 0, "data": None}
 
+# (coingecko id, icon, symbol)
 COINS = [
     ("bitcoin", "₿", "BTC"),
     ("ethereum", "Ξ", "ETH"),
@@ -32,36 +31,77 @@ KEYBOARD = InlineKeyboardMarkup(
     [[InlineKeyboardButton("🔄 Refresh", callback_data="crypto_refresh")]]
 )
 
+HEADERS = {"accept": "application/json", "User-Agent": "elitevest-bot/1.0"}
+
+
+def fetch_cryptocompare():
+    """Source 1: CryptoCompare. Returns {SYMBOL: (price, change_pct)}."""
+    symbols = ",".join(symbol for _, _, symbol in COINS)
+    headers = dict(HEADERS)
+    if CRYPTOCOMPARE_KEY:
+        headers["authorization"] = f"Apikey {CRYPTOCOMPARE_KEY}"
+
+    response = requests.get(
+        "https://min-api.cryptocompare.com/data/pricemultifull",
+        params={"fsyms": symbols, "tsyms": "USD"},
+        headers=headers,
+        timeout=10,
+    )
+    response.raise_for_status()
+    raw = response.json()["RAW"]
+
+    result = {}
+    for _, _, symbol in COINS:
+        usd = raw[symbol]["USD"]
+        result[symbol] = (usd["PRICE"], usd.get("CHANGEPCT24HOUR") or 0)
+    return result
+
+
+def fetch_coingecko():
+    """Source 2 (backup): CoinGecko. Returns {SYMBOL: (price, change_pct)}."""
+    headers = dict(HEADERS)
+    if COINGECKO_KEY:
+        headers["x-cg-demo-api-key"] = COINGECKO_KEY
+
+    response = requests.get(
+        "https://api.coingecko.com/api/v3/simple/price",
+        params={
+            "ids": ",".join(coin_id for coin_id, _, _ in COINS),
+            "vs_currencies": "usd",
+            "include_24hr_change": "true",
+        },
+        headers=headers,
+        timeout=10,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    result = {}
+    for coin_id, _, symbol in COINS:
+        result[symbol] = (
+            data[coin_id]["usd"],
+            data[coin_id].get("usd_24h_change") or 0,
+        )
+    return result
+
 
 def fetch_prices():
-    """Blocking request, run in a thread so the bot is not frozen."""
-    params = {
-        "ids": ",".join(coin_id for coin_id, _, _ in COINS),
-        "vs_currencies": "usd",
-        "include_24hr_change": "true",
-    }
-    headers = {"accept": "application/json", "User-Agent": "elitevest-bot/1.0"}
-    if API_KEY:
-        headers["x-cg-demo-api-key"] = API_KEY
+    """Try each source in order; blocking, so run it in a thread."""
+    for name, source in (
+        ("CryptoCompare", fetch_cryptocompare),
+        ("CoinGecko", fetch_coingecko),
+    ):
+        try:
+            return source()
+        except Exception as error:
+            logger.error("Price source %s failed: %s", name, error)
 
-    response = requests.get(URL, params=params, headers=headers, timeout=10)
-
-    if response.status_code != 200:
-        # This line shows the real reason in the Render logs
-        logger.error(
-            "CoinGecko error %s: %s",
-            response.status_code,
-            response.text[:200],
-        )
-        response.raise_for_status()
-
-    return response.json()
+    raise RuntimeError("All price sources failed")
 
 
 def get_prices_cached():
     now = time.time()
 
-    # Reuse recent data so many users don't trigger rate limits
     if _cache["data"] and now - _cache["time"] < CACHE_SECONDS:
         return _cache["data"]
 
@@ -71,8 +111,7 @@ def get_prices_cached():
         _cache["time"] = now
         return data
     except Exception:
-        logger.exception("Crypto price fetch failed")
-        # Fall back to the last good data if we have any
+        # Show the last good prices if we have them
         if _cache["data"]:
             return _cache["data"]
         raise
@@ -81,10 +120,8 @@ def get_prices_cached():
 def build_message(data):
     lines = ["₿ CRYPTO MARKET", ""]
 
-    for coin_id, icon, symbol in COINS:
-        coin = data[coin_id]
-        price = coin["usd"]
-        change = coin.get("usd_24h_change") or 0
+    for _, icon, symbol in COINS:
+        price, change = data[symbol]
         arrow = "📈" if change >= 0 else "📉"
 
         lines.append(f"{icon} {symbol}/USD")
