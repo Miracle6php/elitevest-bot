@@ -9,14 +9,18 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from admin import ADMIN_IDS
+
 logger = logging.getLogger(__name__)
 
-# Optional keys (set on Render > Environment). Both work without a key.
+# Optional keys (set on Render > Environment). Both work without a key,
+# but a free CoinGecko demo key avoids rate-limit errors.
 CRYPTOCOMPARE_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY")
 COINGECKO_KEY = os.environ.get("COINGECKO_API_KEY")
 
-CACHE_SECONDS = 45
-_cache = {"time": 0, "data": None}
+CACHE_SECONDS = 45      # reuse a fresh result for this long
+STALE_AFTER = 300       # warn users if the prices are older than this
+_cache = {"time": 0.0, "data": None, "source": None, "error": None}
 
 # (coingecko id, icon, symbol)
 COINS = [
@@ -34,31 +38,8 @@ KEYBOARD = InlineKeyboardMarkup(
 HEADERS = {"accept": "application/json", "User-Agent": "elitevest-bot/1.0"}
 
 
-def fetch_cryptocompare():
-    """Source 1: CryptoCompare. Returns {SYMBOL: (price, change_pct)}."""
-    symbols = ",".join(symbol for _, _, symbol in COINS)
-    headers = dict(HEADERS)
-    if CRYPTOCOMPARE_KEY:
-        headers["authorization"] = f"Apikey {CRYPTOCOMPARE_KEY}"
-
-    response = requests.get(
-        "https://min-api.cryptocompare.com/data/pricemultifull",
-        params={"fsyms": symbols, "tsyms": "USD"},
-        headers=headers,
-        timeout=10,
-    )
-    response.raise_for_status()
-    raw = response.json()["RAW"]
-
-    result = {}
-    for _, _, symbol in COINS:
-        usd = raw[symbol]["USD"]
-        result[symbol] = (usd["PRICE"], usd.get("CHANGEPCT24HOUR") or 0)
-    return result
-
-
 def fetch_coingecko():
-    """Source 2 (backup): CoinGecko. Returns {SYMBOL: (price, change_pct)}."""
+    """Source 1: CoinGecko. Returns {SYMBOL: (price, change_pct)}."""
     headers = dict(HEADERS)
     if COINGECKO_KEY:
         headers["x-cg-demo-api-key"] = COINGECKO_KEY
@@ -85,16 +66,39 @@ def fetch_coingecko():
     return result
 
 
+def fetch_cryptocompare():
+    """Source 2 (backup): CryptoCompare. Returns {SYMBOL: (price, change_pct)}."""
+    symbols = ",".join(symbol for _, _, symbol in COINS)
+    headers = dict(HEADERS)
+    if CRYPTOCOMPARE_KEY:
+        headers["authorization"] = f"Apikey {CRYPTOCOMPARE_KEY}"
+
+    response = requests.get(
+        "https://min-api.cryptocompare.com/data/pricemultifull",
+        params={"fsyms": symbols, "tsyms": "USD"},
+        headers=headers,
+        timeout=10,
+    )
+    response.raise_for_status()
+    raw = response.json()["RAW"]
+
+    result = {}
+    for _, _, symbol in COINS:
+        usd = raw[symbol]["USD"]
+        result[symbol] = (usd["PRICE"], usd.get("CHANGEPCT24HOUR") or 0)
+    return result
+
+
 def fetch_prices():
     """Try each source in order; blocking, so run it in a thread."""
     errors = []
 
     for name, source in (
-        ("CryptoCompare", fetch_cryptocompare),
         ("CoinGecko", fetch_coingecko),
+        ("CryptoCompare", fetch_cryptocompare),
     ):
         try:
-            return source()
+            return name, source()
         except Exception as error:
             logger.error("Price source %s failed: %s", name, error)
             errors.append(f"{name}: {type(error).__name__}: {error}")
@@ -103,24 +107,29 @@ def fetch_prices():
 
 
 def get_prices_cached():
+    """Return a snapshot dict: time, data, source, error."""
     now = time.time()
 
     if _cache["data"] and now - _cache["time"] < CACHE_SECONDS:
-        return _cache["data"]
+        return dict(_cache)
 
     try:
-        data = fetch_prices()
-        _cache["data"] = data
-        _cache["time"] = now
-        return data
-    except Exception:
-        # Show the last good prices if we have them
-        if _cache["data"]:
-            return _cache["data"]
-        raise
+        source, data = fetch_prices()
+        _cache.update(time=now, data=data, source=source, error=None)
+    except Exception as error:
+        if not _cache["data"]:
+            raise
+        # Keep the old prices, but remember they are old (shown to the user)
+        _cache["error"] = str(error)
+
+    return dict(_cache)
 
 
-def build_message(data):
+def build_message(snapshot):
+    data = snapshot["data"]
+    fetched = datetime.fromtimestamp(snapshot["time"], timezone.utc)
+    age = time.time() - snapshot["time"]
+
     lines = ["₿ CRYPTO MARKET", ""]
 
     for _, icon, symbol in COINS:
@@ -132,8 +141,12 @@ def build_message(data):
         lines.append(f"{arrow} {change:+.2f}% (24h)")
         lines.append("")
 
-    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-    lines.append(f"🔄 Updated: {now}")
+    stamp = fetched.strftime("%H:%M:%S UTC")
+    if age > STALE_AFTER:
+        lines.append(f"⚠️ Live prices unavailable. Showing prices from {stamp}.")
+    else:
+        lines.append(f"🔄 Updated: {stamp}")
+    lines.append(f"📡 Source: {snapshot['source']}")
 
     return "\n".join(lines)
 
@@ -145,20 +158,23 @@ async def crypto_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         await query.answer()
 
+    debug = None
+
     try:
-        data = await asyncio.to_thread(get_prices_cached)
-        message = build_message(data)
+        snapshot = await asyncio.to_thread(get_prices_cached)
+        message = build_message(snapshot)
+        debug = snapshot["error"]
     except Exception as error:
         message = (
             "⚠️ Could not load market prices right now.\n"
             "Please try again in a moment."
         )
+        debug = str(error)
 
-        # Admin only: show the real reason so it can be fixed
-        admin_id = os.environ.get("ADMIN_ID")
-        user = update.effective_user
-        if user and admin_id and str(user.id) == admin_id:
-            message += f"\n\n🛠 Debug (admin only):\n{str(error)[:600]}"
+    # Admin only: show the real reason so it can be fixed
+    user = update.effective_user
+    if debug and user and user.id in ADMIN_IDS:
+        message += f"\n\n🛠 Debug (admin only):\n{debug[:600]}"
 
     if query:
         try:
