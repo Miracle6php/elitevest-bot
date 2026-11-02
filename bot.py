@@ -1,9 +1,11 @@
-from referral import referral_menu
-from deposit import deposit_menu, handle_deposit_amount
+import os
+import sqlite3
+import random
+import string
+import threading
 from datetime import datetime
-from telegram.ext import CallbackQueryHandler
-from crpto import crypto_prices
-from Transaction import transaction_history
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -11,13 +13,18 @@ from telegram import (
     InlineKeyboardMarkup,
 )
 from telegram.ext import (
-Application,
-CommandHandler,
-MessageHandler,
-ContextTypes,
-filters,
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
 )
 
+from referral import referral_menu
+from deposit import deposit_menu, handle_deposit_amount
+from crpto import crypto_prices
+from Transaction import transaction_history
 from invest import (
     investment_menu,
     create_investment,
@@ -32,14 +39,13 @@ from Withdrawal import (
     reject_withdraw
 )
 
-import sqlite3
-import random
-import string
 
+# ==========================================
+# SECRETS (set these in Render > Environment)
+# ==========================================
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-BOT_TOKEN="8938062623:AAE3kpa2erORsolY0QdyGd-F4Ykjx1IcAIc"
-
-ADMIN_ID=8672271918
 
 HOME_KEYBOARD = ReplyKeyboardMarkup(
     [
@@ -54,6 +60,31 @@ HOME_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 
+# ==========================================
+# KEEP-ALIVE WEB SERVER (so Render sees an open port)
+# ==========================================
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    HTTPServer(("0.0.0.0", port), PingHandler).serve_forever()
+
+
+# ==========================================
+# DATABASE
+# ==========================================
 def create_database():
     conn = sqlite3.connect("elitevest.db")
     cursor = conn.cursor()
@@ -87,21 +118,21 @@ def create_database():
         status TEXT DEFAULT 'Active'
     )
     """)
+
+    # Transactions table
     cursor.execute("""
-	CREATE TABLE IF NOT EXISTS transactions(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    	telegram_id INTEGER,
-    	type TEXT,
-    	amount REAL,
-    	status TEXT,
-    	date TEXT
-	)
-	""")
-    
+    CREATE TABLE IF NOT EXISTS transactions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_id INTEGER,
+        type TEXT,
+        amount REAL,
+        status TEXT,
+        date TEXT
+    )
+    """)
 
     conn.commit()
     conn.close()
-      
 
 
 def generate_account_id():
@@ -125,6 +156,8 @@ def generate_account_id():
 
         if not exists:
             return account_id
+
+
 def register_user(user, referred_by=None):
 
     conn = sqlite3.connect("elitevest.db")
@@ -136,7 +169,6 @@ def register_user(user, referred_by=None):
     )
 
     exists = cursor.fetchone()
-
 
     if not exists:
 
@@ -160,7 +192,6 @@ def register_user(user, referred_by=None):
             )
         )
 
-
         # Add referral count to referrer
         if referred_by:
 
@@ -173,28 +204,30 @@ def register_user(user, referred_by=None):
                 (referred_by,)
             )
 
-
         conn.commit()
 
-
     conn.close()
+
+
+# ==========================================
+# HANDLERS
+# ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    
+
     user = update.effective_user
 
     referrer_id = None
 
     if context.args:
-       try:
-           referrer_id = int(context.args[0])
+        try:
+            referrer_id = int(context.args[0])
 
-           if referrer_id == user.id:
-               referrer_id = None
-       except:
+            if referrer_id == user.id:
+                referrer_id = None
+        except Exception:
             referrer_id = None
 
     register_user(user, referrer_id)
-
 
     await update.message.reply_text(
         "🏠 HOME\n\n"
@@ -205,6 +238,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 Portfolio Tracking",
         reply_markup=HOME_KEYBOARD
     )
+
+
+async def show_home(update: Update):
+    await update.message.reply_text(
+        "🏠 HOME",
+        reply_markup=HOME_KEYBOARD
+    )
+
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -226,34 +267,27 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await create_investment(update, context):
         return
 
-
     text = update.message.text
-
 
     if text == "💰 Invest Now":
         await investment_menu(update, context)
         return
 
-
     elif text == "💼 Active Investments":
         await show_active_investments(update, context)
         return
-
 
     elif text == "📜 Transaction History":
         await transaction_history(update, context)
         return
 
-
     elif text == "💹 Crypto Prices":
         await crypto_prices(update, context)
         return
 
-
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
         return
-
 
     elif text == "ℹ️ About":
 
@@ -268,16 +302,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "responsible risk management, and excellent customer support."
         )
 
-
         await update.message.reply_photo(
             photo="https://raw.githubusercontent.com/Miracle6php/elitevest-bot/1be87ddc40c0cebd20a6e043eed0cdee0e8dd5db/IMG-20260711-WA0010(1).jpg",
             caption=about_text
         )
 
-
         await show_home(update)
         return
-
 
     elif text == "❓ FAQ":
 
@@ -305,7 +336,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_home(update)
         return
 
-
     elif text == "📞 Contact Support":
 
         await update.message.reply_text(
@@ -318,21 +348,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_home(update)
         return
 
-
     elif text == "💳 Deposit Funds":
         await deposit_menu(update, context)
         return
-
 
     elif text == "📤 Withdraw Funds":
         await withdraw_menu(update, context)
         return
 
-
     elif text == "🏠 Home":
         await show_home(update)
         return
-
 
     elif text == "❌ Cancel":
 
@@ -344,7 +370,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await show_home(update)
         return
-
 
     elif text == "✅ Payment Sent":
 
@@ -364,7 +389,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-
     elif text == "📷 Attach Screenshot":
 
         context.user_data["waiting_for_screenshot"] = True
@@ -374,7 +398,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         return
-
 
     elif text == "👤 My Account":
 
@@ -402,7 +425,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         conn.close()
 
-
         if data:
 
             account_id, balance, investments, withdrawn, deposited, referrals, referral_bonus = data
@@ -425,11 +447,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         return
-async def show_home(update: Update):
-    await update.message.reply_text(
-        "🏠 HOME",
-        reply_markup=HOME_KEYBOARD
-    ) 
+
+
 async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.user_data.get("waiting_for_screenshot"):
@@ -442,17 +461,17 @@ async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Send notification to admin
     admin_keyboard = InlineKeyboardMarkup([
-    [
-        InlineKeyboardButton(
-            "✅ Verify",
-            callback_data=f"approve_{user.id}_{amount}"
-        ),
-        InlineKeyboardButton(
-            "❌ Reject",
-            callback_data=f"reject_{user.id}_{amount}"
-        )
-    ]
-])
+        [
+            InlineKeyboardButton(
+                "✅ Verify",
+                callback_data=f"approve_{user.id}_{amount}"
+            ),
+            InlineKeyboardButton(
+                "❌ Reject",
+                callback_data=f"reject_{user.id}_{amount}"
+            )
+        ]
+    ])
 
     await context.bot.send_message(
         chat_id=ADMIN_ID,
@@ -464,7 +483,6 @@ async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ),
         reply_markup=admin_keyboard
     )
-   
 
     # Forward screenshot to admin
     if update.message.photo:
@@ -480,8 +498,6 @@ async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
     await show_home(update)
-    
-
 
 
 async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -489,17 +505,19 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # Only the admin may approve or reject deposits
+    if query.from_user.id != ADMIN_ID:
+        return
+
     action, user_id, amount = query.data.split("_")
 
     user_id = int(user_id)
     amount = float(amount)
 
-
     if action == "approve":
 
         conn = sqlite3.connect("elitevest.db")
         cursor = conn.cursor()
-
 
         # Update user balance and deposit total
         cursor.execute(
@@ -511,7 +529,6 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """,
             (amount, amount, user_id)
         )
-
 
         # Save transaction history
         cursor.execute(
@@ -534,10 +551,8 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-
         conn.commit()
         conn.close()
-
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -548,21 +563,17 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-
         await query.edit_message_text(
             query.message.text +
             f"\n\n✅ Deposit Approved\n"
             f"💵 Credited Amount: ${amount}"
         )
 
-
     elif action == "reject":
-
 
         # Save rejected transaction
         conn = sqlite3.connect("elitevest.db")
         cursor = conn.cursor()
-
 
         cursor.execute(
             """
@@ -584,10 +595,8 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-
         conn.commit()
         conn.close()
-
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -597,11 +606,15 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-
         await query.edit_message_text(
             query.message.text +
             "\n\n❌ Deposit Rejected"
         )
+
+
+# ==========================================
+# MAIN
+# ==========================================
 def main():
     create_database()
 
@@ -615,9 +628,7 @@ def main():
         )
     )
 
-    # ==========================================
-    # CRYPTO REFRESH CALLBACK
-    # ==========================================
+    # Crypto refresh callback
     app.add_handler(
         CallbackQueryHandler(
             crypto_prices,
@@ -625,9 +636,7 @@ def main():
         )
     )
 
-    # ==========================================
-    # WITHDRAWAL CALLBACKS
-    # ==========================================
+    # Withdrawal callbacks
     app.add_handler(
         CallbackQueryHandler(
             approve_withdraw,
@@ -642,9 +651,7 @@ def main():
         )
     )
 
-    # ==========================================
-    # DEPOSIT CALLBACKS
-    # ==========================================
+    # Deposit callbacks
     app.add_handler(
         CallbackQueryHandler(
             admin_actions,
@@ -667,6 +674,9 @@ def main():
             handle_buttons
         )
     )
+
+    # Start the keep-alive web server for Render
+    threading.Thread(target=run_web, daemon=True).start()
 
     print("Bot is running...")
     app.run_polling()
