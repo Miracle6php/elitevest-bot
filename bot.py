@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 import random
@@ -38,7 +39,7 @@ from withdrawal import (
     handle_withdraw_confirmation,
     handle_wallet_address,
 )
-from admin import handle_deposit_decision, handle_withdraw_decision
+from admin import ADMIN_IDS, handle_deposit_decision, handle_withdraw_decision
 
 
 # ==========================================
@@ -46,6 +47,39 @@ from admin import handle_deposit_decision, handle_withdraw_decision
 # ==========================================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 DB = os.getenv("DB_PATH", "elitevest.db")
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    level=logging.INFO,
+)
+
+
+async def log_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    logging.info("BUTTON TAP: %s from %s", q.data, q.from_user.id)
+
+
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    logging.error("Handler error", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_user \
+            and update.effective_user.id in ADMIN_IDS:
+        await context.bot.send_message(
+            update.effective_user.id,
+            f"⚠️ Error: {type(context.error).__name__}: {context.error}"[:3500],
+        )
+
+
+async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    text = f"Your ID: {uid}\nAdmin: {uid in ADMIN_IDS}\nAdmin IDs: {ADMIN_IDS}"
+    if uid in ADMIN_IDS:
+        conn = sqlite3.connect(DB)
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM deposits WHERE status='Pending'"
+        ).fetchone()[0]
+        conn.close()
+        text += f"\nPending deposits: {pending}"
+    await update.message.reply_text(text)
 
 
 HOME_KEYBOARD = ReplyKeyboardMarkup(
@@ -432,6 +466,10 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
+    app.add_error_handler(on_error)
+    app.add_handler(CallbackQueryHandler(log_callback), group=-1)
+    app.add_handler(CommandHandler("id", whoami))
+
     app.add_handler(CommandHandler("start", start))
 
     # Crypto refresh callback
@@ -459,7 +497,7 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
 
     print("Bot is running...")
-    app.run_polling()
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
