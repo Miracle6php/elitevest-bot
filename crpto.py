@@ -87,6 +87,8 @@ def fetch_coingecko():
 
 def fetch_prices():
     """Try each source in order; blocking, so run it in a thread."""
+    errors = []
+
     for name, source in (
         ("CryptoCompare", fetch_cryptocompare),
         ("CoinGecko", fetch_coingecko),
@@ -95,8 +97,9 @@ def fetch_prices():
             return source()
         except Exception as error:
             logger.error("Price source %s failed: %s", name, error)
+            errors.append(f"{name}: {type(error).__name__}: {error}")
 
-    raise RuntimeError("All price sources failed")
+    raise RuntimeError("\n".join(errors))
 
 
 def get_prices_cached():
@@ -145,11 +148,17 @@ async def crypto_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         data = await asyncio.to_thread(get_prices_cached)
         message = build_message(data)
-    except Exception:
+    except Exception as error:
         message = (
             "⚠️ Could not load market prices right now.\n"
             "Please try again in a moment."
         )
+
+        # Admin only: show the real reason so it can be fixed
+        admin_id = os.environ.get("ADMIN_ID")
+        user = update.effective_user
+        if user and admin_id and str(user.id) == admin_id:
+            message += f"\n\n🛠 Debug (admin only):\n{str(error)[:600]}"
 
     if query:
         try:
