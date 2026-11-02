@@ -1,4 +1,5 @@
 import math
+import os
 import sqlite3
 from datetime import datetime
 
@@ -7,7 +8,8 @@ from telegram.ext import ContextTypes
 
 from admin import notify_admin_deposit, get_user_code
 
-DB = "elitevest.db"
+# Same database as bot.py, admin.py and withdrawal.py
+DB = os.getenv("DB_PATH", "elitevest.db")
 MIN_DEPOSIT = 50
 WALLET = "TABK7j4y3NP5xSvjpnSKsFncNYX8RPtnFB"
 
