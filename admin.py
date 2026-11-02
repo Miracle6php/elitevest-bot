@@ -1,27 +1,37 @@
 import html
 import os
 import sqlite3
+from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-DB = "elitevest.db"
+DB = os.getenv("DB_PATH", "elitevest.db")
 
-# Numeric Telegram ID(s) of the admin(s). Set ADMIN_IDS=111111,222222 as an
-# environment variable on your host, or edit the default below.
-ADMIN_IDS = [int(i) for i in os.getenv("ADMIN_IDS", "123456789").split(",")]
+# Admin Telegram ID(s). Works with either ADMIN_IDS=111,222 or ADMIN_ID=111
+_raw_admins = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID", "")
+ADMIN_IDS = [int(i) for i in _raw_admins.replace(" ", "").split(",") if i]
 
 
 def get_user_code(telegram_id):
-    """The generated User ID the user sees in My Profile (e.g. 505INNMB).
-    Change `user_code` if your column has a different name."""
+    """The generated User ID shown in My Profile (users.account_id)."""
     conn = sqlite3.connect(DB)
     row = conn.execute(
-        "SELECT user_code FROM users WHERE telegram_id=?", (telegram_id,)
+        "SELECT account_id FROM users WHERE telegram_id=?", (telegram_id,)
     ).fetchone()
     conn.close()
     return row[0] if row and row[0] else "N/A"
 
+
+def _log_transaction(cursor, user_id, tx_type, amount, status):
+    cursor.execute(
+        "INSERT INTO transactions(telegram_id, type, amount, status, date) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (user_id, tx_type, amount, status, datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+
+
+# ------------------------------------------------------------------ deposits
 
 def deposit_keyboard(deposit_id):
     return InlineKeyboardMarkup([[
@@ -77,9 +87,11 @@ async def handle_deposit_decision(update: Update, context: ContextTypes.DEFAULT_
 
     if approve:
         cursor.execute(
-            "UPDATE users SET balance = balance + ? WHERE telegram_id=?",
-            (amount, user_id),
+            "UPDATE users SET balance = balance + ?, deposited = deposited + ? "
+            "WHERE telegram_id=?",
+            (amount, amount, user_id),
         )
+    _log_transaction(cursor, user_id, "Deposit", amount, "Approved" if approve else "Rejected")
     conn.commit()
     conn.close()
 
@@ -128,7 +140,6 @@ async def notify_admin_withdrawal(context, withdrawal_id, user, amount, wallet):
 
 
 async def handle_withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Register with CallbackQueryHandler(pattern=r'^wd_(approve|reject):\\d+$')"""
     query = update.callback_query
 
     if query.from_user.id not in ADMIN_IDS:
@@ -170,6 +181,7 @@ async def handle_withdraw_decision(update: Update, context: ContextTypes.DEFAULT
             "UPDATE users SET balance = balance + ? WHERE telegram_id=?",
             (amount, user_id),
         )
+    _log_transaction(cursor, user_id, "Withdrawal", amount, "Approved" if approve else "Rejected")
     conn.commit()
     conn.close()
 
