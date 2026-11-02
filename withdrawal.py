@@ -17,8 +17,8 @@ HOME_KEYBOARD = ReplyKeyboardMarkup(
         ["👤 My Account", "💳 Deposit Funds"],
         ["📤 Withdraw Funds", "💰 Invest Now"],
         ["💼 Active Investments", "👥 Referral Program"],
-        ["📜 Transaction History", "💹 Crypto Prices"],
-        ["📞 Contact Support"],
+        ["📜 Transaction History", "ℹ️ About"],
+        ["❓ FAQ", "📞 Contact Support"],
     ],
     resize_keyboard=True,
 )
