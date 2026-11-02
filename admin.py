@@ -1,4 +1,5 @@
 import html
+import logging
 import os
 import sqlite3
 from datetime import datetime
@@ -58,12 +59,23 @@ async def notify_admin_deposit(context, deposit_id, user_id, amount, file_id):
 
 async def handle_deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()  # stops the button spinner right away
 
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("Not allowed.", show_alert=True)
+        await query.message.reply_text(
+            f"⛔ This account ({query.from_user.id}) is not an admin. "
+            f"Allowed admin IDs: {ADMIN_IDS}"
+        )
         return
-    await query.answer()
 
+    try:
+        await _decide_deposit(query, context)
+    except Exception as e:
+        logging.exception("Deposit decision failed")
+        await query.message.reply_text(f"⚠️ Error: {type(e).__name__}: {e}")
+
+
+async def _decide_deposit(query, context):
     action, deposit_id = query.data.split(":")
     deposit_id = int(deposit_id)
     approve = action == "dep_approve"
@@ -141,12 +153,23 @@ async def notify_admin_withdrawal(context, withdrawal_id, user, amount, wallet):
 
 async def handle_withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()  # stops the button spinner right away
 
     if query.from_user.id not in ADMIN_IDS:
-        await query.answer("Not allowed.", show_alert=True)
+        await query.message.reply_text(
+            f"⛔ This account ({query.from_user.id}) is not an admin. "
+            f"Allowed admin IDs: {ADMIN_IDS}"
+        )
         return
-    await query.answer()
 
+    try:
+        await _decide_withdrawal(query, context)
+    except Exception as e:
+        logging.exception("Withdrawal decision failed")
+        await query.message.reply_text(f"⚠️ Error: {type(e).__name__}: {e}")
+
+
+async def _decide_withdrawal(query, context):
     action, withdrawal_id = query.data.split(":")
     withdrawal_id = int(withdrawal_id)
     approve = action == "wd_approve"
