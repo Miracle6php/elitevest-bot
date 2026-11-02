@@ -3,15 +3,9 @@ import sqlite3
 import random
 import string
 import threading
-from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,7 +16,14 @@ from telegram.ext import (
 )
 
 from referral import referral_menu
-from deposit import deposit_menu, handle_deposit_amount
+from deposit import (
+    init_deposit_table,
+    deposit_menu,
+    handle_deposit_amount,
+    handle_payment_sent,
+    handle_screenshot_text,
+    handle_screenshot,
+)
 from crpto import crypto_prices
 from Transaction import transaction_history
 from invest import (
@@ -30,21 +31,21 @@ from invest import (
     create_investment,
     show_active_investments
 )
-from Withdrawal import (
+from withdrawal import (
+    init_withdrawal_table,
     withdraw_menu,
     handle_withdraw_amount,
     handle_withdraw_confirmation,
     handle_wallet_address,
-    approve_withdraw,
-    reject_withdraw
 )
+from admin import handle_deposit_decision, handle_withdraw_decision
 
 
 # ==========================================
-# SECRETS (set these in Render > Environment)
+# SETTINGS (set these in Render > Environment)
 # ==========================================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ["ADMIN_ID"])
+DB = os.getenv("DB_PATH", "elitevest.db")
 
 
 HOME_KEYBOARD = ReplyKeyboardMarkup(
@@ -86,10 +87,9 @@ def run_web():
 # DATABASE
 # ==========================================
 def create_database():
-    conn = sqlite3.connect("elitevest.db")
+    conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
-    # Users table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users(
         telegram_id INTEGER PRIMARY KEY,
@@ -105,7 +105,6 @@ def create_database():
     )
     """)
 
-    # Active investments table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS active_investments(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +118,6 @@ def create_database():
     )
     """)
 
-    # Transactions table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS transactions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,16 +140,13 @@ def generate_account_id():
             + ''.join(random.choices(string.ascii_uppercase, k=5))
         )
 
-        conn = sqlite3.connect("elitevest.db")
+        conn = sqlite3.connect(DB)
         cursor = conn.cursor()
-
         cursor.execute(
             "SELECT account_id FROM users WHERE account_id=?",
             (account_id,)
         )
-
         exists = cursor.fetchone()
-
         conn.close()
 
         if not exists:
@@ -160,7 +155,7 @@ def generate_account_id():
 
 def register_user(user, referred_by=None):
 
-    conn = sqlite3.connect("elitevest.db")
+    conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
     cursor.execute(
@@ -194,7 +189,6 @@ def register_user(user, referred_by=None):
 
         # Add referral count to referrer
         if referred_by:
-
             cursor.execute(
                 """
                 UPDATE users
@@ -251,6 +245,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Deposit flow
     if await handle_deposit_amount(update, context):
+        return
+
+    if await handle_screenshot_text(update, context):
         return
 
     # Withdrawal flow
@@ -352,6 +349,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await deposit_menu(update, context)
         return
 
+    elif text == "✅ Payment Sent":
+        await handle_payment_sent(update, context)
+        return
+
     elif text == "📤 Withdraw Funds":
         await withdraw_menu(update, context)
         return
@@ -371,39 +372,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_home(update)
         return
 
-    elif text == "✅ Payment Sent":
-
-        amount = context.user_data.get("deposit_amount")
-
-        review_keyboard = ReplyKeyboardMarkup(
-            [["📷 Attach Screenshot"]],
-            resize_keyboard=True
-        )
-
-        await update.message.reply_text(
-            f"⏳ Payment Under Review\n\n"
-            f"Your payment of ${amount} is being reviewed.\n\n"
-            "You may attach a screenshot for faster confirmation.",
-            reply_markup=review_keyboard
-        )
-
-        return
-
-    elif text == "📷 Attach Screenshot":
-
-        context.user_data["waiting_for_screenshot"] = True
-
-        await update.message.reply_text(
-            "📷 Please send your payment screenshot as a photo."
-        )
-
-        return
-
     elif text == "👤 My Account":
 
         user = update.effective_user
 
-        conn = sqlite3.connect("elitevest.db")
+        conn = sqlite3.connect(DB)
         cursor = conn.cursor()
 
         cursor.execute(
@@ -449,230 +422,37 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.user_data.get("waiting_for_screenshot"):
-        return
-
-    context.user_data["waiting_for_screenshot"] = False
-
-    user = update.effective_user
-    amount = context.user_data.get("deposit_amount", "Unknown")
-
-    # Send notification to admin
-    admin_keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "✅ Verify",
-                callback_data=f"approve_{user.id}_{amount}"
-            ),
-            InlineKeyboardButton(
-                "❌ Reject",
-                callback_data=f"reject_{user.id}_{amount}"
-            )
-        ]
-    ])
-
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=(
-            f"💰 New Deposit Request\n\n"
-            f"👤 Username: @{user.username}\n"
-            f"🆔 Telegram ID: {user.id}\n"
-            f"💵 Amount: ${amount}"
-        ),
-        reply_markup=admin_keyboard
-    )
-
-    # Forward screenshot to admin
-    if update.message.photo:
-        await context.bot.forward_message(
-            chat_id=ADMIN_ID,
-            from_chat_id=update.effective_chat.id,
-            message_id=update.message.message_id
-        )
-
-    await update.message.reply_text(
-        "✅ Screenshot received successfully.\n\n"
-        "Your payment proof has been submitted for review."
-    )
-
-    await show_home(update)
-
-
-async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
-    # Only the admin may approve or reject deposits
-    if query.from_user.id != ADMIN_ID:
-        return
-
-    action, user_id, amount = query.data.split("_")
-
-    user_id = int(user_id)
-    amount = float(amount)
-
-    if action == "approve":
-
-        conn = sqlite3.connect("elitevest.db")
-        cursor = conn.cursor()
-
-        # Update user balance and deposit total
-        cursor.execute(
-            """
-            UPDATE users
-            SET balance = balance + ?,
-                deposited = deposited + ?
-            WHERE telegram_id = ?
-            """,
-            (amount, amount, user_id)
-        )
-
-        # Save transaction history
-        cursor.execute(
-            """
-            INSERT INTO transactions(
-                telegram_id,
-                type,
-                amount,
-                status,
-                date
-            )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                "Deposit",
-                amount,
-                "Approved",
-                datetime.now().strftime("%Y-%m-%d %H:%M")
-            )
-        )
-
-        conn.commit()
-        conn.close()
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                f"✅ Deposit Verified Successfully\n\n"
-                f"💵 Amount Credited: ${amount}\n"
-                f"💰 Your balance has been updated."
-            )
-        )
-
-        await query.edit_message_text(
-            query.message.text +
-            f"\n\n✅ Deposit Approved\n"
-            f"💵 Credited Amount: ${amount}"
-        )
-
-    elif action == "reject":
-
-        # Save rejected transaction
-        conn = sqlite3.connect("elitevest.db")
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO transactions(
-                telegram_id,
-                type,
-                amount,
-                status,
-                date
-            )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                "Deposit",
-                amount,
-                "Rejected",
-                datetime.now().strftime("%Y-%m-%d %H:%M")
-            )
-        )
-
-        conn.commit()
-        conn.close()
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                "❌ Your payment was unsuccessful.\n\n"
-                "Please contact support or submit a valid payment proof."
-            )
-        )
-
-        await query.edit_message_text(
-            query.message.text +
-            "\n\n❌ Deposit Rejected"
-        )
-
-
 # ==========================================
 # MAIN
 # ==========================================
 def main():
     create_database()
+    init_deposit_table()
+    init_withdrawal_table()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Start command
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
+    app.add_handler(CommandHandler("start", start))
 
     # Crypto refresh callback
     app.add_handler(
-        CallbackQueryHandler(
-            crypto_prices,
-            pattern=r"^crypto_refresh$"
-        )
+        CallbackQueryHandler(crypto_prices, pattern=r"^crypto_refresh$")
     )
 
-    # Withdrawal callbacks
+    # Admin approve / reject buttons
     app.add_handler(
-        CallbackQueryHandler(
-            approve_withdraw,
-            pattern=r"^approve_withdraw_"
-        )
+        CallbackQueryHandler(handle_deposit_decision, pattern=r"^dep_(approve|reject):\d+$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(handle_withdraw_decision, pattern=r"^wd_(approve|reject):\d+$")
     )
 
-    app.add_handler(
-        CallbackQueryHandler(
-            reject_withdraw,
-            pattern=r"^reject_withdraw_"
-        )
-    )
-
-    # Deposit callbacks
-    app.add_handler(
-        CallbackQueryHandler(
-            admin_actions,
-            pattern=r"^(approve|reject)_[0-9]+_[0-9.]+$"
-        )
-    )
-
-    # Screenshot handler
-    app.add_handler(
-        MessageHandler(
-            filters.PHOTO,
-            receive_screenshot
-        )
-    )
+    # Payment screenshot
+    app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
 
     # Text buttons and inputs
     app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_buttons
-        )
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons)
     )
 
     # Start the keep-alive web server for Render
