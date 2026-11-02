@@ -25,7 +25,6 @@ from deposit import (
     handle_screenshot_text,
     handle_screenshot,
 )
-from crpto import crypto_prices
 from Transaction import transaction_history
 from invest import (
     investment_menu,
@@ -87,9 +86,8 @@ HOME_KEYBOARD = ReplyKeyboardMarkup(
         ["👤 My Account", "💳 Deposit Funds"],
         ["📤 Withdraw Funds", "💰 Invest Now"],
         ["💼 Active Investments", "👥 Referral Program"],
-        ["📜 Transaction History", "💹 Crypto Prices"],
-        ["ℹ️ About", "❓ FAQ"],
-        ["📞 Contact Support"]
+        ["📜 Transaction History", "ℹ️ About"],
+        ["❓ FAQ", "📞 Contact Support"]
     ],
     resize_keyboard=True
 )
@@ -312,10 +310,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await transaction_history(update, context)
         return
 
-    elif text == "💹 Crypto Prices":
-        await crypto_prices(update, context)
-        return
-
     elif text == "👥 Referral Program":
         await referral_menu(update, context)
         return
@@ -471,11 +465,6 @@ def main():
     app.add_handler(CommandHandler("id", whoami))
 
     app.add_handler(CommandHandler("start", start))
-
-    # Crypto refresh callback
-    app.add_handler(
-        CallbackQueryHandler(crypto_prices, pattern=r"^crypto_refresh$")
-    )
 
     # Admin approve / reject buttons
     app.add_handler(
